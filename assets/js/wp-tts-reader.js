@@ -1,12 +1,32 @@
 (function () {
 'use strict';
 
+function moveControlsToHeader() {
+    var controls = document.querySelector('.wp-tts-reader-controls');
+    if (!controls) return;
+
+    var header = document.querySelector('.entry-header-inner');
+    if (!header) return;
+
+    var title = header.querySelector('.entry-title');
+    if (!title) return;
+
+    var meta = header.querySelector('.post-meta-wrapper.post-meta-single');
+
+    if (meta) {
+        header.insertBefore(controls, meta);
+    } else {
+        title.insertAdjacentElement('afterend', controls);
+    }
+}
+
 // Brak wsparcia Web Speech API
 if (typeof window === 'undefined' ||
     !('speechSynthesis' in window) ||
     typeof window.SpeechSynthesisUtterance === 'undefined') {
 
     document.addEventListener('DOMContentLoaded', function () {
+        moveControlsToHeader();
         var buttons = document.querySelectorAll('.wp-tts-reader-toggle');
         for (var i = 0; i < buttons.length; i++) {
             buttons[i].setAttribute('disabled', 'disabled');
@@ -23,6 +43,24 @@ if (typeof window === 'undefined' ||
 var reading = false;
 var currentButton = null;
 var currentUtterance = null;
+var cachedVoices = [];
+
+function loadVoicesEarly() {
+    if (!window.speechSynthesis) return;
+
+    cachedVoices = window.speechSynthesis.getVoices() || [];
+
+    if (cachedVoices.length) return;
+
+    function handleVoicesChanged() {
+        cachedVoices = window.speechSynthesis.getVoices() || [];
+        window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+    }
+
+    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+}
+
+loadVoicesEarly();
 
 function resetButton() {
     reading = false;
@@ -62,11 +100,10 @@ function getLang() {
     return 'pl-PL';
 }
 function getBestPolishVoice() {
-    var availableVoices = speechSynthesis.getVoices();
-    
+    var availableVoices = cachedVoices.length ? cachedVoices : speechSynthesis.getVoices();
+
     // Jeżeli głosy jeszcze nie gotowe — poczekaj:
     if (!availableVoices || availableVoices.length === 0) {
-        console.warn("Głosy jeszcze nie gotowe, czekam...");
         return null;
     }
 
@@ -233,12 +270,15 @@ function onToggleClick(e) {
     var wrapper = document.querySelector('.wp-tts-reader-wrapper[data-wp-tts-id="' + id + '"]');
     if (!wrapper) return;
 
+    loadVoicesEarly();
+
     // Upewniamy się, że lista głosów jest już pobrana
     window.speechSynthesis.getVoices();
     startReading(button, wrapper);
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    moveControlsToHeader();
     var buttons = document.querySelectorAll('.wp-tts-reader-toggle');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', onToggleClick);
