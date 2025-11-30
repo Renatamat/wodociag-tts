@@ -43,6 +43,24 @@ if (typeof window === 'undefined' ||
 var reading = false;
 var currentButton = null;
 var currentUtterance = null;
+var cachedVoices = [];
+
+function loadVoicesEarly() {
+    if (!window.speechSynthesis) return;
+
+    cachedVoices = window.speechSynthesis.getVoices() || [];
+
+    if (cachedVoices.length) return;
+
+    function handleVoicesChanged() {
+        cachedVoices = window.speechSynthesis.getVoices() || [];
+        window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+    }
+
+    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+}
+
+loadVoicesEarly();
 
 function resetButton() {
     reading = false;
@@ -82,11 +100,10 @@ function getLang() {
     return 'pl-PL';
 }
 function getBestPolishVoice() {
-    var availableVoices = speechSynthesis.getVoices();
-    
+    var availableVoices = cachedVoices.length ? cachedVoices : speechSynthesis.getVoices();
+
     // Jeżeli głosy jeszcze nie gotowe — poczekaj:
     if (!availableVoices || availableVoices.length === 0) {
-        console.warn("Głosy jeszcze nie gotowe, czekam...");
         return null;
     }
 
@@ -252,6 +269,8 @@ function onToggleClick(e) {
 
     var wrapper = document.querySelector('.wp-tts-reader-wrapper[data-wp-tts-id="' + id + '"]');
     if (!wrapper) return;
+
+    loadVoicesEarly();
 
     // Upewniamy się, że lista głosów jest już pobrana
     window.speechSynthesis.getVoices();
