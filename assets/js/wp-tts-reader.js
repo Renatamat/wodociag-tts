@@ -1,12 +1,32 @@
 (function () {
 'use strict';
 
+function moveControlsToHeader() {
+    var controls = document.querySelector('.wp-tts-reader-controls');
+    if (!controls) return;
+
+    var header = document.querySelector('.entry-header-inner');
+    if (!header) return;
+
+    var title = header.querySelector('.entry-title');
+    if (!title) return;
+
+    var meta = header.querySelector('.post-meta-wrapper.post-meta-single');
+
+    if (meta) {
+        header.insertBefore(controls, meta);
+    } else {
+        title.insertAdjacentElement('afterend', controls);
+    }
+}
+
 // Brak wsparcia Web Speech API
 if (typeof window === 'undefined' ||
     !('speechSynthesis' in window) ||
     typeof window.SpeechSynthesisUtterance === 'undefined') {
 
     document.addEventListener('DOMContentLoaded', function () {
+        moveControlsToHeader();
         var buttons = document.querySelectorAll('.wp-tts-reader-toggle');
         for (var i = 0; i < buttons.length; i++) {
             buttons[i].setAttribute('disabled', 'disabled');
@@ -23,6 +43,47 @@ if (typeof window === 'undefined' ||
 var reading = false;
 var currentButton = null;
 var currentUtterance = null;
+var cachedVoices = [];
+var selectionButton = null;
+
+function loadVoicesEarly() {
+    if (!window.speechSynthesis) return;
+
+    cachedVoices = window.speechSynthesis.getVoices() || [];
+
+    if (cachedVoices.length) return;
+
+    function handleVoicesChanged() {
+        cachedVoices = window.speechSynthesis.getVoices() || [];
+        window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+    }
+
+    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+}
+
+function createSelectionButton() {
+    if (selectionButton) return selectionButton;
+
+    selectionButton = document.createElement('button');
+    selectionButton.type = 'button';
+    selectionButton.className = 'wp-tts-reader-selection-toggle';
+    selectionButton.textContent = (window.wpTtsReader && wpTtsReader.startButtonText) || 'CZYTAJ TEKST';
+    selectionButton.setAttribute('aria-label', (window.wpTtsReader && wpTtsReader.startLabel) || 'Włącz czytanie tekstu');
+    selectionButton.style.position = 'absolute';
+    selectionButton.style.zIndex = '9999';
+    selectionButton.style.display = 'none';
+
+    document.body.appendChild(selectionButton);
+    return selectionButton;
+}
+
+function hideSelectionButton() {
+    if (!selectionButton) return;
+    selectionButton.style.display = 'none';
+    selectionButton.removeAttribute('data-wp-tts-id');
+}
+
+loadVoicesEarly();
 
 function resetButton() {
     reading = false;
@@ -62,11 +123,10 @@ function getLang() {
     return 'pl-PL';
 }
 function getBestPolishVoice() {
-    var availableVoices = speechSynthesis.getVoices();
-    
+    var availableVoices = cachedVoices.length ? cachedVoices : speechSynthesis.getVoices();
+
     // Jeżeli głosy jeszcze nie gotowe — poczekaj:
     if (!availableVoices || availableVoices.length === 0) {
-        console.warn("Głosy jeszcze nie gotowe, czekam...");
         return null;
     }
 
@@ -214,6 +274,8 @@ function startReading(button, wrapper) {
     }
 
     window.speechSynthesis.speak(utterance);
+
+    hideSelectionButton();
 }
 
 function onToggleClick(e) {
@@ -233,16 +295,120 @@ function onToggleClick(e) {
     var wrapper = document.querySelector('.wp-tts-reader-wrapper[data-wp-tts-id="' + id + '"]');
     if (!wrapper) return;
 
+    handleReadRequest(button, wrapper);
+}
+
+function handleReadRequest(button, wrapper) {
+    loadVoicesEarly();
+
     // Upewniamy się, że lista głosów jest już pobrana
     window.speechSynthesis.getVoices();
     startReading(button, wrapper);
 }
 
+function showSelectionButton(wrapper) {
+    var selection = window.getSelection && window.getSelection();
+    if (!selection || !selection.rangeCount) {
+        hideSelectionButton();
+        return;
+    }
+
+    var selectedText = getSelectedTextWithinWrapper(wrapper);
+    if (!selectedText) {
+        hideSelectionButton();
+        return;
+    }
+
+    var range = selection.getRangeAt(0);
+    var rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) {
+        hideSelectionButton();
+        return;
+    }
+
+    var button = createSelectionButton();
+    var wrapperId = wrapper.getAttribute('data-wp-tts-id');
+    if (!wrapperId) {
+        hideSelectionButton();
+        return;
+    }
+
+    button.setAttribute('data-wp-tts-id', wrapperId);
+
+    var scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+    var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+    button.style.left = (rect.left + scrollLeft) + 'px';
+    button.style.top = (rect.bottom + scrollTop + 8) + 'px';
+    button.style.display = 'block';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+    moveControlsToHeader();
     var buttons = document.querySelectorAll('.wp-tts-reader-toggle');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', onToggleClick);
     }
+
+    document.addEventListener('selectionchange', function () {
+        var selection = window.getSelection && window.getSelection();
+        if (!selection || !selection.rangeCount) {
+            hideSelectionButton();
+            return;
+        }
+
+        var range = selection.getRangeAt(0);
+        var container = range.commonAncestorContainer;
+        if (!container) {
+            hideSelectionButton();
+            return;
+        }
+
+        var wrapper = (container.nodeType === 1 ? container : container.parentNode);
+        if (wrapper && wrapper.closest) {
+            wrapper = wrapper.closest('.wp-tts-reader-wrapper');
+        } else {
+            while (wrapper && wrapper.parentNode && wrapper.className !== 'wp-tts-reader-wrapper') {
+                wrapper = wrapper.parentNode;
+            }
+            if (wrapper && (!wrapper.classList || !wrapper.classList.contains('wp-tts-reader-wrapper'))) {
+                wrapper = null;
+            }
+        }
+
+        if (!wrapper) {
+            hideSelectionButton();
+            return;
+        }
+
+        showSelectionButton(wrapper);
+    });
+
+    document.addEventListener('click', function (event) {
+        if (!selectionButton || event.target === selectionButton) {
+            return;
+        }
+
+        if (selectionButton.style.display === 'block' && !selectionButton.contains(event.target)) {
+            hideSelectionButton();
+        }
+    });
+
+    createSelectionButton();
+    selectionButton.addEventListener('click', function () {
+        var wrapperId = selectionButton.getAttribute('data-wp-tts-id');
+        if (!wrapperId) return;
+
+        var wrapper = document.querySelector('.wp-tts-reader-wrapper[data-wp-tts-id="' + wrapperId + '"]');
+        var button = document.querySelector('.wp-tts-reader-toggle[data-wp-tts-id="' + wrapperId + '"]');
+        if (!wrapper || !button) return;
+
+        if (reading && currentButton && currentButton !== button) {
+            stopReading();
+        }
+
+        handleReadRequest(button, wrapper);
+    });
 
     window.addEventListener('beforeunload', function () {
         stopReading();
