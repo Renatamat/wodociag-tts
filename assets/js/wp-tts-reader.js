@@ -1,12 +1,32 @@
 (function () {
 'use strict';
 
+function moveControlsToHeader() {
+    var controls = document.querySelector('.wp-tts-reader-controls');
+    if (!controls) return;
+
+    var header = document.querySelector('.entry-header-inner');
+    if (!header) return;
+
+    var title = header.querySelector('.entry-title');
+    if (!title) return;
+
+    var meta = header.querySelector('.post-meta-wrapper.post-meta-single');
+
+    if (meta) {
+        header.insertBefore(controls, meta);
+    } else {
+        title.insertAdjacentElement('afterend', controls);
+    }
+}
+
 // Brak wsparcia Web Speech API
 if (typeof window === 'undefined' ||
     !('speechSynthesis' in window) ||
     typeof window.SpeechSynthesisUtterance === 'undefined') {
 
     document.addEventListener('DOMContentLoaded', function () {
+        moveControlsToHeader();
         var buttons = document.querySelectorAll('.wp-tts-reader-toggle');
         for (var i = 0; i < buttons.length; i++) {
             buttons[i].setAttribute('disabled', 'disabled');
@@ -239,6 +259,7 @@ function onToggleClick(e) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    moveControlsToHeader();
     var buttons = document.querySelectorAll('.wp-tts-reader-toggle');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', onToggleClick);
